@@ -20,6 +20,11 @@ export default function Reader({ book, onClose }: ReaderProps) {
   const [showControls, setShowControls] = useState(true);
   const [toc, setToc] = useState<any[]>([]);
   const [showToc, setShowToc] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [fontFamily, setFontFamily] = useState<'system' | 'serif' | 'kai'>(() => {
+    return (localStorage.getItem('reader_font') as any) || 'system';
+  });
+  const fontFamilyRef = useRef(fontFamily);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'toc' | 'notes'>('toc');
   const [isNavigating, setIsNavigating] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<any>(null);
@@ -115,6 +120,28 @@ export default function Reader({ book, onClose }: ReaderProps) {
     handlersRef.current = { handlePrev, handleNext, toggleControls };
   }, [handlePrev, handleNext, toggleControls]);
 
+  const getFontString = (font: string) => {
+    switch (font) {
+      case 'serif': return '"Noto Serif SC", "Source Han Serif SC", serif';
+      case 'kai': return '"LXGW WenKai TC", "LXGW WenKai", cursive';
+      case 'system':
+      default: return '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Inter", sans-serif';
+    }
+  };
+
+  useEffect(() => {
+    fontFamilyRef.current = fontFamily;
+    localStorage.setItem('reader_font', fontFamily);
+    
+    if (renditionRef.current) {
+      renditionRef.current.getContents().forEach((contents: any) => {
+        if (contents.document && contents.document.body) {
+          contents.document.body.style.setProperty('font-family', getFontString(fontFamily), 'important');
+        }
+      });
+    }
+  }, [fontFamily]);
+
   useEffect(() => {
     resetIdleTimer();
     return () => {
@@ -133,6 +160,7 @@ export default function Reader({ book, onClose }: ReaderProps) {
       height: '100%',
       flow: 'paginated',
       manager: 'default',
+      allowScriptedContent: true,
     });
 
     renditionRef.current = rendition;
@@ -140,10 +168,19 @@ export default function Reader({ book, onClose }: ReaderProps) {
     // Inject Chinese Typography and Apple Design Styles using hooks (more stable than themes.default)
     if (rendition.hooks && rendition.hooks.content) {
       rendition.hooks.content.register((contents: any) => {
+        const doc = contents.document;
+        if (doc && !doc.getElementById('google-fonts')) {
+          const link = doc.createElement('link');
+          link.id = 'google-fonts';
+          link.rel = 'stylesheet';
+          link.href = 'https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600&family=LXGW+WenKai+TC&display=swap';
+          doc.head.appendChild(link);
+        }
+
         if (contents && typeof contents.addStylesheetRules === 'function') {
           contents.addStylesheetRules({
             body: {
-              'font-family': '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Inter", sans-serif !important',
+              'font-family': `${getFontString(fontFamilyRef.current)} !important`,
               'line-height': '1.6 !important',
               'text-align': 'justify !important',
               'text-justify': 'inter-character !important',
@@ -420,13 +457,16 @@ export default function Reader({ book, onClose }: ReaderProps) {
             </div>
             <div className="flex items-center gap-2">
               <button 
-                onClick={() => setShowToc(true)}
+                onClick={() => { setShowSettings(!showSettings); setShowToc(false); }}
+                className={cn("p-2 rounded-full transition-colors", showSettings ? "bg-apple-gray" : "hover:bg-apple-gray")}
+              >
+                <Settings className="w-6 h-6" />
+              </button>
+              <button 
+                onClick={() => { setShowToc(true); setShowSettings(false); }}
                 className="p-2 hover:bg-apple-gray rounded-full transition-colors"
               >
                 <Menu className="w-6 h-6" />
-              </button>
-              <button className="p-2 hover:bg-apple-gray rounded-full transition-colors">
-                <Settings className="w-6 h-6" />
               </button>
             </div>
           </motion.header>
@@ -446,6 +486,51 @@ export default function Reader({ book, onClose }: ReaderProps) {
         )}
         <div ref={viewerRef} className="w-full h-full px-4 sm:px-8 md:px-12" />
         
+        {/* Settings Dropdown */}
+        <AnimatePresence>
+          {showSettings && showControls && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setShowSettings(false)} />
+              <motion.div
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="absolute top-20 right-6 w-64 bg-white/90 backdrop-blur-xl shadow-2xl rounded-2xl border border-near-black/10 p-4 z-40"
+              >
+                <h4 className="text-xs font-semibold text-near-black/40 uppercase tracking-wider mb-3">排版设置</h4>
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-sm font-medium text-near-black/60 mb-2">字体</div>
+                    <div className="flex flex-col gap-1.5">
+                      <button 
+                        onClick={() => setFontFamily('system')} 
+                        className={cn("px-4 py-2.5 text-sm font-medium rounded-lg transition-colors text-left", fontFamily === 'system' ? "bg-apple-blue text-white" : "hover:bg-apple-gray text-near-black")}
+                      >
+                        系统默认
+                      </button>
+                      <button 
+                        onClick={() => setFontFamily('serif')} 
+                        style={{ fontFamily: '"Noto Serif SC", serif' }}
+                        className={cn("px-4 py-2.5 text-sm font-medium rounded-lg transition-colors text-left", fontFamily === 'serif' ? "bg-apple-blue text-white" : "hover:bg-apple-gray text-near-black")}
+                      >
+                        思源宋体
+                      </button>
+                      <button 
+                        onClick={() => setFontFamily('kai')} 
+                        style={{ fontFamily: '"LXGW WenKai TC", cursive' }}
+                        className={cn("px-4 py-2.5 text-sm font-medium rounded-lg transition-colors text-left", fontFamily === 'kai' ? "bg-apple-blue text-white" : "hover:bg-apple-gray text-near-black")}
+                      >
+                        霞鹜文楷
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
         {/* Desktop Context Menu */}
         <AnimatePresence>
           {contextMenu && (
