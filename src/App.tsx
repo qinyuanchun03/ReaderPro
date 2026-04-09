@@ -56,12 +56,12 @@ export default function App() {
             <span className="text-near-black text-xs font-semibold tracking-tight uppercase">Reader Pro</span>
           </div>
           <p className="text-near-black/40 text-sm">
-            Designed with reverence for the written word.
+            为文字的纯粹而设计。
           </p>
           <div className="flex gap-8">
-            <a href="#" className="text-near-black/40 hover:text-near-black transition-colors text-sm">Privacy</a>
-            <a href="#" className="text-near-black/40 hover:text-near-black transition-colors text-sm">Terms</a>
-            <a href="#" className="text-near-black/40 hover:text-near-black transition-colors text-sm">Support</a>
+            <a href="#" className="text-near-black/40 hover:text-near-black transition-colors text-sm">隐私</a>
+            <a href="#" className="text-near-black/40 hover:text-near-black transition-colors text-sm">条款</a>
+            <a href="#" className="text-near-black/40 hover:text-near-black transition-colors text-sm">支持</a>
           </div>
         </div>
       </footer>

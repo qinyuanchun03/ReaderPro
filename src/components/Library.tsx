@@ -61,7 +61,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
       const newBook: DbBook = {
         id: crypto.randomUUID(),
         title: metadata.title || file.name.replace('.epub', ''),
-        author: metadata.creator || 'Unknown Author',
+        author: metadata.creator || '未知作者',
         cover: coverUrl,
         data: arrayBuffer,
         addedAt: Date.now(),
@@ -71,7 +71,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
       await loadBooks();
     } catch (error) {
       console.error('Failed to upload book:', error);
-      alert('Failed to parse EPUB file. Please make sure it is a valid .epub file.');
+      alert('解析 EPUB 文件失败。请确保它是一个有效的 .epub 文件。');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -80,7 +80,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (confirm('Are you sure you want to delete this book?')) {
+    if (confirm('确定要删除这本书吗？')) {
       await deleteBook(id);
       await loadBooks();
     }
@@ -91,8 +91,8 @@ export default function Library({ onSelectBook }: LibraryProps) {
       <div className="max-w-7xl mx-auto">
         <header className="mb-12 flex justify-between items-end">
           <div>
-            <h1 className="text-5xl font-semibold text-near-black mb-2">Library</h1>
-            <p className="text-near-black/60 text-xl">Your personal collection of stories.</p>
+            <h1 className="text-5xl font-semibold text-near-black mb-2">书库</h1>
+            <p className="text-near-black/60 text-xl">你个人的故事收藏夹。</p>
           </div>
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -100,7 +100,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
             className="apple-button-primary flex items-center gap-2 h-12 px-6 rounded-full"
           >
             {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
-            <span className="font-medium">Add Book</span>
+            <span className="font-medium">添加书籍</span>
           </button>
           <input
             type="file"
@@ -124,15 +124,15 @@ export default function Library({ onSelectBook }: LibraryProps) {
             <div className="w-20 h-20 bg-apple-gray rounded-full flex items-center justify-center mx-auto mb-6">
               <BookIcon className="w-10 h-10 text-near-black/20" />
             </div>
-            <h2 className="text-2xl font-semibold mb-2">No books yet</h2>
+            <h2 className="text-2xl font-semibold mb-2">书库空空如也</h2>
             <p className="text-near-black/40 mb-8 max-w-md mx-auto">
-              Upload your first EPUB file to start your reading journey.
+              上传你的第一本 EPUB 电子书，开启阅读之旅。
             </p>
             <button
               onClick={() => fileInputRef.current?.click()}
               className="apple-link text-lg inline-flex items-center gap-1"
             >
-              Upload a book <Plus className="w-4 h-4" />
+              上传书籍 <Plus className="w-4 h-4" />
             </button>
           </motion.div>
         ) : (

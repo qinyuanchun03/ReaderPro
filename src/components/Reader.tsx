@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import ePub, { Rendition, Book as EpubBook } from 'epubjs';
-import { ChevronLeft, Menu, Settings, X, ChevronRight, Loader2, Copy, Highlighter, Database, List } from 'lucide-react';
+import { ChevronLeft, Menu, Settings, X, ChevronRight, Loader2, Copy, Highlighter, Database, List, Trash2 } from 'lucide-react';
 import { Book, updateReadPosition, updateAnnotations } from '../lib/db';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -20,6 +20,7 @@ export default function Reader({ book, onClose }: ReaderProps) {
   const [showControls, setShowControls] = useState(true);
   const [toc, setToc] = useState<any[]>([]);
   const [showToc, setShowToc] = useState(false);
+  const [activeSidebarTab, setActiveSidebarTab] = useState<'toc' | 'notes'>('toc');
   const [isNavigating, setIsNavigating] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<any>(null);
   const [currentChapterHref, setCurrentChapterHref] = useState<string>('');
@@ -143,10 +144,11 @@ export default function Reader({ book, onClose }: ReaderProps) {
           contents.addStylesheetRules({
             body: {
               'font-family': '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Inter", sans-serif !important',
-              'line-height': '1.7 !important',
+              'line-height': '1.6 !important',
               'text-align': 'justify !important',
               'text-justify': 'inter-character !important',
-              'padding': '0 20px !important',
+              'margin': '0 !important',
+              'padding': '0 !important',
               'color': '#1d1d1f !important',
               'transition': 'opacity 0.3s ease-in-out !important',
             },
@@ -155,7 +157,7 @@ export default function Reader({ book, onClose }: ReaderProps) {
               'color': '#ff3b30 !important',
             },
             '.epubjs-hl': {
-              'fill': 'rgba(255, 59, 48, 0.3) !important',
+              'fill': '#ff3b30 !important',
               'fill-opacity': '0.3 !important',
               'mix-blend-mode': 'multiply',
             }
@@ -379,6 +381,21 @@ export default function Reader({ book, onClose }: ReaderProps) {
     setShowToc(false);
   };
 
+  const handleAddNote = useCallback((cfiRange: string, text: string) => {
+    if (annotations.some(a => a.cfiRange === cfiRange)) return;
+    renditionRef.current?.annotations.highlight(cfiRange, {}, (e: any) => {});
+    const newAnnotations = [{ cfiRange, text }, ...annotations];
+    setAnnotations(newAnnotations);
+    updateAnnotations(book.id, newAnnotations);
+  }, [annotations, book.id]);
+
+  const handleRemoveNote = useCallback((cfiRange: string) => {
+    renditionRef.current?.annotations.remove(cfiRange, 'highlight');
+    const newAnnotations = annotations.filter(a => a.cfiRange !== cfiRange);
+    setAnnotations(newAnnotations);
+    updateAnnotations(book.id, newAnnotations);
+  }, [annotations, book.id]);
+
   return (
     <div className="fixed inset-0 bg-white z-50 flex flex-col overflow-hidden">
       {/* Top Bar */}
@@ -427,7 +444,7 @@ export default function Reader({ book, onClose }: ReaderProps) {
             <Loader2 className="w-10 h-10 animate-spin text-apple-blue" />
           </div>
         )}
-        <div ref={viewerRef} className="w-full h-full" />
+        <div ref={viewerRef} className="w-full h-full px-4 sm:px-8 md:px-12" />
         
         {/* Desktop Context Menu */}
         <AnimatePresence>
@@ -450,7 +467,7 @@ export default function Reader({ book, onClose }: ReaderProps) {
                 }}
               >
                 <div className="px-4 py-2 text-xs font-semibold text-near-black/40 uppercase tracking-wider">
-                  {contextMenu.text ? 'Selection Actions' : 'Global Actions'}
+                  {contextMenu.text ? '选中文本操作' : '全局操作'}
                 </div>
                 
                 <button 
@@ -464,37 +481,35 @@ export default function Reader({ book, onClose }: ReaderProps) {
                     }
                   }}
                 >
-                  <Copy className="w-4 h-4" /> Copy Text
+                  <Copy className="w-4 h-4" /> 复制
                 </button>
                 
                 <button 
                   disabled={!contextMenu.text}
                   className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-apple-blue hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-near-black transition-colors flex items-center gap-3"
                   onClick={() => {
-                    if (contextMenu.cfiRange) {
-                      renditionRef.current?.annotations.highlight(contextMenu.cfiRange, {}, (e: any) => {});
-                      const newAnnotations = [...annotations, { cfiRange: contextMenu.cfiRange, text: contextMenu.text }];
-                      setAnnotations(newAnnotations);
-                      updateAnnotations(book.id, newAnnotations);
+                    if (contextMenu.cfiRange && contextMenu.text) {
+                      handleAddNote(contextMenu.cfiRange, contextMenu.text);
                       setContextMenu(null);
                       renditionRef.current?.getContents().forEach((c: any) => c.window.getSelection()?.removeAllRanges());
                     }
                   }}
                 >
-                  <Highlighter className="w-4 h-4" /> Highlight
+                  <Highlighter className="w-4 h-4" /> 标注
                 </button>
                 
                 <button 
                   disabled={!contextMenu.text}
                   className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-apple-blue hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-near-black transition-colors flex items-center gap-3"
                   onClick={() => {
-                    if (contextMenu.text) {
-                      alert('Saved to Database (WIP)');
+                    if (contextMenu.cfiRange && contextMenu.text) {
+                      handleAddNote(contextMenu.cfiRange, contextMenu.text);
                       setContextMenu(null);
+                      renditionRef.current?.getContents().forEach((c: any) => c.window.getSelection()?.removeAllRanges());
                     }
                   }}
                 >
-                  <Database className="w-4 h-4" /> Save to DB
+                  <Database className="w-4 h-4" /> 收录
                 </button>
                 
                 {!contextMenu.text && (
@@ -507,7 +522,7 @@ export default function Reader({ book, onClose }: ReaderProps) {
                         setContextMenu(null);
                       }}
                     >
-                      <List className="w-4 h-4" /> Table of Contents
+                      <List className="w-4 h-4" /> 查看目录
                     </button>
                   </>
                 )}
@@ -533,31 +548,29 @@ export default function Reader({ book, onClose }: ReaderProps) {
                   renditionRef.current?.getContents().forEach((c: any) => c.window.getSelection()?.removeAllRanges());
                 }}
               >
-                <Copy className="w-4 h-4" /> Copy
+                <Copy className="w-4 h-4" /> 复制
               </button>
               <div className="w-px h-6 bg-white/20 mx-1" />
               <button 
                 className="px-4 py-2 text-sm font-medium text-white hover:bg-white/20 rounded-full transition-colors flex items-center gap-2"
                 onClick={() => {
-                  renditionRef.current?.annotations.highlight(mobilePill.cfiRange, {}, (e: any) => {});
-                  const newAnnotations = [...annotations, { cfiRange: mobilePill.cfiRange, text: mobilePill.text }];
-                  setAnnotations(newAnnotations);
-                  updateAnnotations(book.id, newAnnotations);
+                  handleAddNote(mobilePill.cfiRange, mobilePill.text);
                   setMobilePill(null);
                   renditionRef.current?.getContents().forEach((c: any) => c.window.getSelection()?.removeAllRanges());
                 }}
               >
-                <Highlighter className="w-4 h-4" /> Highlight
+                <Highlighter className="w-4 h-4" /> 标注
               </button>
               <div className="w-px h-6 bg-white/20 mx-1" />
               <button 
                 className="px-4 py-2 text-sm font-medium text-white hover:bg-white/20 rounded-full transition-colors flex items-center gap-2"
                 onClick={() => {
-                  alert('Saved to Database (WIP)');
+                  handleAddNote(mobilePill.cfiRange, mobilePill.text);
                   setMobilePill(null);
+                  renditionRef.current?.getContents().forEach((c: any) => c.window.getSelection()?.removeAllRanges());
                 }}
               >
-                <Database className="w-4 h-4" /> Save
+                <Database className="w-4 h-4" /> 收录
               </button>
             </motion.div>
           )}
@@ -641,8 +654,21 @@ export default function Reader({ book, onClose }: ReaderProps) {
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
               className="fixed right-0 top-0 bottom-0 w-80 bg-white shadow-2xl z-40 flex flex-col"
             >
-              <div className="p-6 border-bottom border-near-black/5 flex items-center justify-between">
-                <h3 className="text-xl font-semibold">Contents</h3>
+              <div className="flex items-center justify-between px-6 pt-6 pb-4 border-bottom border-near-black/5">
+                <div className="flex gap-6">
+                  <button 
+                    onClick={() => setActiveSidebarTab('toc')}
+                    className={cn("text-xl font-semibold transition-colors", activeSidebarTab === 'toc' ? "text-near-black" : "text-near-black/30 hover:text-near-black/60")}
+                  >
+                    目录
+                  </button>
+                  <button 
+                    onClick={() => setActiveSidebarTab('notes')}
+                    className={cn("text-xl font-semibold transition-colors", activeSidebarTab === 'notes' ? "text-near-black" : "text-near-black/30 hover:text-near-black/60")}
+                  >
+                    笔记
+                  </button>
+                </div>
                 <button 
                   onClick={() => setShowToc(false)}
                   className="p-2 hover:bg-apple-gray rounded-full transition-colors"
@@ -651,28 +677,60 @@ export default function Reader({ book, onClose }: ReaderProps) {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 select-none">
-                {toc && toc.length > 0 ? (
-                  toc.map((item, index) => {
-                    const getBaseName = (path: string) => path ? path.split('/').pop()?.split('#')[0] || '' : '';
-                    const isActive = currentChapterHref && getBaseName(currentChapterHref) === getBaseName(item.href);
-                    
-                    return (
-                      <button
-                        key={index}
-                        onClick={() => navigateTo(item.href)}
-                        className={cn(
-                          "w-full text-left p-3 rounded-lg transition-colors text-sm font-medium mb-1",
-                          isActive 
-                            ? "bg-apple-blue text-white" 
-                            : "text-near-black/80 hover:bg-apple-gray hover:text-near-black"
-                        )}
-                      >
-                        {item.label}
-                      </button>
-                    );
-                  })
+                {activeSidebarTab === 'toc' ? (
+                  toc && toc.length > 0 ? (
+                    toc.map((item, index) => {
+                      const getBaseName = (path: string) => path ? path.split('/').pop()?.split('#')[0] || '' : '';
+                      const isActive = currentChapterHref && getBaseName(currentChapterHref) === getBaseName(item.href);
+                      
+                      return (
+                        <button
+                          key={index}
+                          onClick={() => navigateTo(item.href)}
+                          className={cn(
+                            "w-full text-left p-3 rounded-lg transition-colors text-sm font-medium mb-1",
+                            isActive 
+                              ? "bg-apple-blue text-white" 
+                              : "text-near-black/80 hover:bg-apple-gray hover:text-near-black"
+                          )}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <p className="text-center text-near-black/40 py-8">暂无目录信息</p>
+                  )
                 ) : (
-                  <p className="text-center text-near-black/40 py-8">No table of contents available</p>
+                  annotations.length > 0 ? (
+                    <div className="flex flex-col gap-2">
+                      {annotations.map((ann, idx) => (
+                        <div 
+                          key={idx} 
+                          onClick={() => navigateTo(ann.cfiRange)}
+                          className="group relative p-4 rounded-xl hover:bg-apple-gray transition-colors cursor-pointer border border-transparent hover:border-near-black/5"
+                        >
+                          <div className="border-l-2 border-[#ff3b30] pl-3">
+                            <p className="text-sm text-near-black/80 leading-relaxed line-clamp-4">{ann.text}</p>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveNote(ann.cfiRange);
+                            }}
+                            className="absolute top-2 right-2 p-1.5 bg-white rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:bg-red-50 border border-near-black/5"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <p className="text-near-black/40 text-sm">暂无笔记</p>
+                      <p className="text-near-black/30 text-xs mt-1">在阅读时选中文本即可添加标注</p>
+                    </div>
+                  )
                 )}
               </div>
             </motion.div>
