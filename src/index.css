@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-apple-blue: #0071e3;
+  --color-link-blue: #0066cc;
+  --color-bright-blue: #2997ff;
+  --color-apple-gray: #f5f5f7;
+  --color-near-black: #1d1d1f;
+  
+  --radius-apple: 8px;
+  --radius-pill: 980px;
+}
+
+@layer base {
+  body {
+    @apply bg-white text-near-black antialiased selection:bg-apple-blue/20;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight font-semibold text-near-black;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-black/80 backdrop-blur-xl saturate-150;
+  }
+  
+  .apple-button-primary {
+    @apply bg-apple-blue text-white px-4 py-2 rounded-apple font-medium transition-all hover:bg-apple-blue/90 active:scale-95 focus:ring-2 focus:ring-apple-blue focus:ring-offset-2 outline-none;
+  }
+
+  .apple-button-dark {
+    @apply bg-near-black text-white px-4 py-2 rounded-apple font-medium transition-all hover:bg-near-black/90 active:scale-95 focus:ring-2 focus:ring-near-black focus:ring-offset-2 outline-none;
+  }
+
+  .apple-link {
+    @apply text-link-blue hover:underline decoration-1 underline-offset-4 font-normal;
+  }
+}
