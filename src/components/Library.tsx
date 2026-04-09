@@ -50,10 +50,19 @@ export default function Library({ onSelectBook }: LibraryProps) {
       const metadata = await epub.loaded.metadata;
       
       // Try to get cover
-      let coverUrl: string | undefined;
+      let coverBase64: string | undefined;
       try {
         const coverPath = await epub.coverUrl();
-        if (coverPath) coverUrl = coverPath;
+        if (coverPath) {
+          const response = await fetch(coverPath);
+          const blob = await response.blob();
+          coverBase64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
       } catch (e) {
         console.warn('Could not load cover', e);
       }
@@ -62,7 +71,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
         id: crypto.randomUUID(),
         title: metadata.title || file.name.replace('.epub', ''),
         author: metadata.creator || '未知作者',
-        cover: coverUrl,
+        cover: coverBase64,
         data: arrayBuffer,
         addedAt: Date.now(),
       };
@@ -150,7 +159,7 @@ export default function Library({ onSelectBook }: LibraryProps) {
                   className="group cursor-pointer"
                 >
                   <div className="aspect-[2/3] bg-white rounded-xl shadow-lg overflow-hidden mb-4 relative border border-near-black/5">
-                    {book.cover ? (
+                    {book.cover && !book.cover.startsWith('blob:') ? (
                       <img
                         src={book.cover}
                         alt={book.title}
