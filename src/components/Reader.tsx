@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import ePub, { Rendition, Book as EpubBook } from 'epubjs';
-import { ChevronLeft, Menu, Settings, X, ChevronRight, Loader2 } from 'lucide-react';
-import { Book, updateReadPosition } from '../lib/db';
+import { ChevronLeft, Menu, Settings, X, ChevronRight, Loader2, Copy, Highlighter, Database, List } from 'lucide-react';
+import { Book, updateReadPosition, updateAnnotations } from '../lib/db';
+import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ReaderProps {
@@ -21,7 +22,14 @@ export default function Reader({ book, onClose }: ReaderProps) {
   const [showToc, setShowToc] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<any>(null);
+  const [currentChapterHref, setCurrentChapterHref] = useState<string>('');
   const [totalLocations, setTotalLocations] = useState(0);
+  const [annotations, setAnnotations] = useState<{ cfiRange: string; text: string }[]>(book.annotations || []);
+  
+  const [contextMenu, setContextMenu] = useState<{x: number, y: number, text: string, cfiRange: string | null} | null>(null);
+  const [mobilePill, setMobilePill] = useState<{text: string, cfiRange: string} | null>(null);
+  const currentSelectionRef = useRef<{text: string, cfiRange: string} | null>(null);
+  const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
   
   // Smart UI Auto-hide state
   const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -61,8 +69,21 @@ export default function Reader({ book, onClose }: ReaderProps) {
     }
   }, [resetIdleTimer]);
 
+  const turnTimestampsRef = useRef<number[]>([]);
+
+  const checkRateLimit = useCallback(() => {
+    const now = Date.now();
+    turnTimestampsRef.current = turnTimestampsRef.current.filter(t => now - t < 5000);
+    if (turnTimestampsRef.current.length >= 10) {
+      return false; // Block if more than 10 turns in 5 seconds
+    }
+    turnTimestampsRef.current.push(now);
+    return true;
+  }, []);
+
   const handlePrev = useCallback(async () => {
     if (isNavigating || !renditionRef.current) return;
+    if (!checkRateLimit()) return;
     setIsNavigating(true);
     handlePageTurn();
     try {
@@ -72,10 +93,11 @@ export default function Reader({ book, onClose }: ReaderProps) {
     } finally {
       setIsNavigating(false);
     }
-  }, [isNavigating, handlePageTurn]);
+  }, [isNavigating, handlePageTurn, checkRateLimit]);
 
   const handleNext = useCallback(async () => {
     if (isNavigating || !renditionRef.current) return;
+    if (!checkRateLimit()) return;
     setIsNavigating(true);
     handlePageTurn();
     try {
@@ -85,7 +107,12 @@ export default function Reader({ book, onClose }: ReaderProps) {
     } finally {
       setIsNavigating(false);
     }
-  }, [isNavigating, handlePageTurn]);
+  }, [isNavigating, handlePageTurn, checkRateLimit]);
+
+  const handlersRef = useRef({ handlePrev, handleNext, toggleControls });
+  useEffect(() => {
+    handlersRef.current = { handlePrev, handleNext, toggleControls };
+  }, [handlePrev, handleNext, toggleControls]);
 
   useEffect(() => {
     resetIdleTimer();
@@ -124,10 +151,44 @@ export default function Reader({ book, onClose }: ReaderProps) {
               'transition': 'opacity 0.3s ease-in-out !important',
             },
             '::selection': {
-              'background': 'rgba(0, 113, 227, 0.2) !important',
+              'background': 'rgba(0, 0, 0, 0.05) !important',
+              'color': '#ff3b30 !important',
+            },
+            '.epubjs-hl': {
+              'fill': 'rgba(255, 59, 48, 0.3) !important',
+              'fill-opacity': '0.3 !important',
+              'mix-blend-mode': 'multiply',
             }
           });
         }
+
+        // Add custom context menu and click listeners to the iframe document
+        contents.document.addEventListener('contextmenu', (e: MouseEvent) => {
+          e.preventDefault();
+          const selection = contents.window.getSelection();
+          const isTextSelected = selection && !selection.isCollapsed;
+          
+          const viewerRect = viewerRef.current?.getBoundingClientRect();
+          const offsetX = viewerRect ? viewerRect.left : 0;
+          const offsetY = viewerRect ? viewerRect.top : 0;
+
+          setContextMenu({
+            x: e.clientX + offsetX,
+            y: e.clientY + offsetY,
+            text: isTextSelected && currentSelectionRef.current ? currentSelectionRef.current.text : '',
+            cfiRange: isTextSelected && currentSelectionRef.current ? currentSelectionRef.current.cfiRange : null
+          });
+          setMobilePill(null);
+        });
+
+        contents.document.addEventListener('click', () => {
+          setContextMenu(null);
+          const selection = contents.window.getSelection();
+          if (!selection || selection.isCollapsed) {
+            setMobilePill(null);
+            currentSelectionRef.current = null;
+          }
+        });
       });
     }
 
@@ -136,10 +197,73 @@ export default function Reader({ book, onClose }: ReaderProps) {
       : rendition.display();
 
     displayPromise.then(() => {
-      if (bookRef.current) setLoading(false);
+      if (bookRef.current) {
+        setLoading(false);
+        // Restore existing annotations
+        annotations.forEach(ann => {
+          rendition.annotations.highlight(ann.cfiRange, {}, (e: any) => {});
+        });
+      }
     }).catch(err => {
       console.error('Display error:', err);
       if (bookRef.current) setLoading(false);
+    });
+
+    // Selection events
+    rendition.on('selected', (cfiRange: string, contents: any) => {
+      const selection = contents.window.getSelection();
+      if (!selection || selection.isCollapsed) return;
+      
+      const text = selection.toString();
+      currentSelectionRef.current = { text, cfiRange };
+      
+      if (isTouchDevice) {
+        setMobilePill({ text, cfiRange });
+      }
+    });
+
+    rendition.on('click', (e: any) => {
+      setContextMenu(null);
+      
+      const contents = renditionRef.current?.getContents()[0];
+      if (contents) {
+        const selection = contents.window.getSelection();
+        if (selection && !selection.isCollapsed) return;
+        
+        // Clear mobile pill if clicking away without selection
+        setMobilePill(null);
+        currentSelectionRef.current = null;
+      }
+
+      // Handle navigation and UI toggle
+      const width = viewerRef.current?.clientWidth || window.innerWidth;
+      const x = e.clientX || e.changedTouches?.[0]?.clientX;
+      
+      if (x !== undefined) {
+        if (x < width * 0.2) handlersRef.current.handlePrev();
+        else if (x > width * 0.8) handlersRef.current.handleNext();
+        else handlersRef.current.toggleControls();
+      }
+    });
+    
+    // Handle swipes inside iframe
+    let touchStartX = 0;
+    let touchStartY = 0;
+    rendition.on('touchstart', (e: any) => {
+      touchStartX = e.changedTouches[0].clientX;
+      touchStartY = e.changedTouches[0].clientY;
+    });
+
+    rendition.on('touchend', (e: any) => {
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
+      const diffX = touchStartX - touchEndX;
+      const diffY = touchStartY - touchEndY;
+
+      if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
+        if (diffX > 0) handlersRef.current.handleNext();
+        else handlersRef.current.handlePrev();
+      }
     });
 
     // Navigation events
@@ -178,6 +302,9 @@ export default function Reader({ book, onClose }: ReaderProps) {
       updateReadPosition(book.id, cfi);
       
       setCurrentLocation(location);
+      if (location.start.href) {
+        setCurrentChapterHref(location.start.href);
+      }
 
       if (bookRef.current?.locations && typeof bookRef.current.locations.percentageFromCfi === 'function') {
         const progress = bookRef.current.locations.percentageFromCfi(cfi);
@@ -253,7 +380,7 @@ export default function Reader({ book, onClose }: ReaderProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-white z-50 flex flex-col overflow-hidden select-none">
+    <div className="fixed inset-0 bg-white z-50 flex flex-col overflow-hidden">
       {/* Top Bar */}
       <AnimatePresence>
         {showControls && (
@@ -261,7 +388,7 @@ export default function Reader({ book, onClose }: ReaderProps) {
             initial={{ y: -100 }}
             animate={{ y: 0 }}
             exit={{ y: -100 }}
-            className="h-16 border-bottom border-near-black/5 flex items-center justify-between px-6 bg-white/80 backdrop-blur-md z-20"
+            className="h-16 border-bottom border-near-black/5 flex items-center justify-between px-6 bg-white/80 backdrop-blur-md z-20 select-none"
           >
             <div className="flex items-center gap-4">
               <button
@@ -302,22 +429,143 @@ export default function Reader({ book, onClose }: ReaderProps) {
         )}
         <div ref={viewerRef} className="w-full h-full" />
         
+        {/* Desktop Context Menu */}
+        <AnimatePresence>
+          {contextMenu && (
+            <>
+              <div 
+                className="fixed inset-0 z-40" 
+                onClick={() => setContextMenu(null)} 
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} 
+              />
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="fixed z-50 bg-white/90 backdrop-blur-xl shadow-2xl rounded-xl border border-near-black/10 overflow-hidden min-w-[220px] flex flex-col py-1.5"
+                style={{ 
+                  top: Math.min(contextMenu.y, window.innerHeight - 250) + 'px', 
+                  left: Math.min(contextMenu.x, window.innerWidth - 220) + 'px',
+                }}
+              >
+                <div className="px-4 py-2 text-xs font-semibold text-near-black/40 uppercase tracking-wider">
+                  {contextMenu.text ? 'Selection Actions' : 'Global Actions'}
+                </div>
+                
+                <button 
+                  disabled={!contextMenu.text}
+                  className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-apple-blue hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-near-black transition-colors flex items-center gap-3"
+                  onClick={() => {
+                    if (contextMenu.text) {
+                      navigator.clipboard.writeText(contextMenu.text);
+                      setContextMenu(null);
+                      renditionRef.current?.getContents().forEach((c: any) => c.window.getSelection()?.removeAllRanges());
+                    }
+                  }}
+                >
+                  <Copy className="w-4 h-4" /> Copy Text
+                </button>
+                
+                <button 
+                  disabled={!contextMenu.text}
+                  className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-apple-blue hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-near-black transition-colors flex items-center gap-3"
+                  onClick={() => {
+                    if (contextMenu.cfiRange) {
+                      renditionRef.current?.annotations.highlight(contextMenu.cfiRange, {}, (e: any) => {});
+                      const newAnnotations = [...annotations, { cfiRange: contextMenu.cfiRange, text: contextMenu.text }];
+                      setAnnotations(newAnnotations);
+                      updateAnnotations(book.id, newAnnotations);
+                      setContextMenu(null);
+                      renditionRef.current?.getContents().forEach((c: any) => c.window.getSelection()?.removeAllRanges());
+                    }
+                  }}
+                >
+                  <Highlighter className="w-4 h-4" /> Highlight
+                </button>
+                
+                <button 
+                  disabled={!contextMenu.text}
+                  className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-apple-blue hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-near-black transition-colors flex items-center gap-3"
+                  onClick={() => {
+                    if (contextMenu.text) {
+                      alert('Saved to Database (WIP)');
+                      setContextMenu(null);
+                    }
+                  }}
+                >
+                  <Database className="w-4 h-4" /> Save to DB
+                </button>
+                
+                {!contextMenu.text && (
+                  <>
+                    <div className="h-px bg-near-black/10 my-1.5 mx-2" />
+                    <button 
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-apple-blue hover:text-white transition-colors flex items-center gap-3"
+                      onClick={() => {
+                        setShowToc(true);
+                        setContextMenu(null);
+                      }}
+                    >
+                      <List className="w-4 h-4" /> Table of Contents
+                    </button>
+                  </>
+                )}
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Mobile Action Pill */}
+        <AnimatePresence>
+          {mobilePill && (
+            <motion.div 
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 50, scale: 0.9 }}
+              className="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 bg-near-black/90 backdrop-blur-xl shadow-2xl rounded-full border border-white/10 flex items-center overflow-hidden p-1.5"
+            >
+              <button 
+                className="px-4 py-2 text-sm font-medium text-white hover:bg-white/20 rounded-full transition-colors flex items-center gap-2"
+                onClick={() => {
+                  navigator.clipboard.writeText(mobilePill.text);
+                  setMobilePill(null);
+                  renditionRef.current?.getContents().forEach((c: any) => c.window.getSelection()?.removeAllRanges());
+                }}
+              >
+                <Copy className="w-4 h-4" /> Copy
+              </button>
+              <div className="w-px h-6 bg-white/20 mx-1" />
+              <button 
+                className="px-4 py-2 text-sm font-medium text-white hover:bg-white/20 rounded-full transition-colors flex items-center gap-2"
+                onClick={() => {
+                  renditionRef.current?.annotations.highlight(mobilePill.cfiRange, {}, (e: any) => {});
+                  const newAnnotations = [...annotations, { cfiRange: mobilePill.cfiRange, text: mobilePill.text }];
+                  setAnnotations(newAnnotations);
+                  updateAnnotations(book.id, newAnnotations);
+                  setMobilePill(null);
+                  renditionRef.current?.getContents().forEach((c: any) => c.window.getSelection()?.removeAllRanges());
+                }}
+              >
+                <Highlighter className="w-4 h-4" /> Highlight
+              </button>
+              <div className="w-px h-6 bg-white/20 mx-1" />
+              <button 
+                className="px-4 py-2 text-sm font-medium text-white hover:bg-white/20 rounded-full transition-colors flex items-center gap-2"
+                onClick={() => {
+                  alert('Saved to Database (WIP)');
+                  setMobilePill(null);
+                }}
+              >
+                <Database className="w-4 h-4" /> Save
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Click areas for navigation when controls are hidden */}
         {!showControls && (
           <>
-            <div 
-              className="absolute left-0 top-0 bottom-0 w-20 z-10 cursor-pointer" 
-              onClick={handlePrev}
-            />
-            <div 
-              className="absolute right-0 top-0 bottom-0 w-20 z-10 cursor-pointer" 
-              onClick={handleNext}
-            />
-            <div 
-              className="absolute inset-x-20 inset-y-0 z-10 cursor-pointer" 
-              onClick={toggleControls}
-            />
-            
             {/* Mini Progress Indicator */}
             {totalLocations > 0 && currentLocation && (
               <motion.div 
@@ -343,7 +591,7 @@ export default function Reader({ book, onClose }: ReaderProps) {
             initial={{ y: 100 }}
             animate={{ y: 0 }}
             exit={{ y: 100 }}
-            className="h-16 border-top border-near-black/5 flex items-center px-6 bg-white/80 backdrop-blur-md z-20"
+            className="h-16 border-top border-near-black/5 flex items-center px-6 bg-white/80 backdrop-blur-md z-20 select-none"
           >
             <div className="flex-1 flex items-center gap-4">
               <div className="flex-1 h-1 bg-apple-gray rounded-full overflow-hidden">
@@ -402,17 +650,27 @@ export default function Reader({ book, onClose }: ReaderProps) {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex-1 overflow-y-auto p-4 select-none">
                 {toc && toc.length > 0 ? (
-                  toc.map((item, index) => (
-                    <button
-                      key={index}
-                      onClick={() => navigateTo(item.href)}
-                      className="w-full text-left p-3 rounded-lg hover:bg-apple-gray transition-colors text-near-black/80 hover:text-near-black text-sm font-medium"
-                    >
-                      {item.label}
-                    </button>
-                  ))
+                  toc.map((item, index) => {
+                    const getBaseName = (path: string) => path ? path.split('/').pop()?.split('#')[0] || '' : '';
+                    const isActive = currentChapterHref && getBaseName(currentChapterHref) === getBaseName(item.href);
+                    
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => navigateTo(item.href)}
+                        className={cn(
+                          "w-full text-left p-3 rounded-lg transition-colors text-sm font-medium mb-1",
+                          isActive 
+                            ? "bg-apple-blue text-white" 
+                            : "text-near-black/80 hover:bg-apple-gray hover:text-near-black"
+                        )}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })
                 ) : (
                   <p className="text-center text-near-black/40 py-8">No table of contents available</p>
                 )}

@@ -8,6 +8,7 @@ export interface Book {
   data: ArrayBuffer;
   addedAt: number;
   lastReadPosition?: string;
+  annotations?: { cfiRange: string; text: string }[];
 }
 
 interface ReaderDB extends DBSchema {
@@ -55,6 +56,15 @@ export const updateReadPosition = async (id: string, position: string) => {
   const book = await db.get('books', id);
   if (book) {
     book.lastReadPosition = position;
+    await db.put('books', book);
+  }
+};
+
+export const updateAnnotations = async (id: string, annotations: { cfiRange: string; text: string }[]) => {
+  const db = await getDB();
+  const book = await db.get('books', id);
+  if (book) {
+    book.annotations = annotations;
     await db.put('books', book);
   }
 };
